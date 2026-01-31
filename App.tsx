@@ -1,52 +1,42 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Plus, 
+  Menu, 
   MessageSquare, 
   Trash2, 
-  ChevronLeft, 
-  ChevronRight, 
+  Settings, 
   Send, 
-  Dna,
-  Zap,
-  Activity,
-  AlertTriangle,
-  BrainCircuit,
-  Settings,
-  Paperclip,
+  Brain, 
+  Activity, 
+  Zap, 
+  ShieldAlert, 
   X,
-  Save
+  User,
+  Sparkles,
+  ChevronDown,
+  Info,
+  MoreVertical,
+  HelpCircle,
+  Clock
 } from 'lucide-react';
-import { Simulation, ChatMessage, Scar, Attachment } from './types.ts';
+import { Simulation, ChatMessage, Scar } from './types.ts';
 import { initDB, getAllSimulations, saveSimulation, saveMessage, getMessagesBySimId, deleteSimulation, getScarsBySimId, saveScar } from './db.ts';
 import { getSimulationResponse } from './geminiService.ts';
 import { stringToVector } from './math.ts';
 
-// Robust UUID fallback for non-secure contexts
-const generateId = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-};
-
 const App: React.FC = () => {
   const [db, setDb] = useState<IDBDatabase | null>(null);
-  const [dbError, setDbError] = useState<string | null>(null);
   const [simulations, setSimulations] = useState<Simulation[]>([]);
   const [activeSimId, setActiveSimId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [scars, setScars] = useState<Scar[]>([]);
   const [inputText, setInputText] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  
-  // Multimodal state
-  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Settings state for active simulation
+  // Settings form states
   const [configName, setConfigName] = useState('');
   const [configInstructions, setConfigInstructions] = useState('');
 
@@ -56,31 +46,28 @@ const App: React.FC = () => {
     initDB()
       .then((dbInstance) => {
         setDb(dbInstance);
+        return getAllSimulations(dbInstance);
+      })
+      .then((sims) => {
+        setSimulations(sims);
+        if (sims.length > 0) setActiveSimId(sims[0].id);
         setIsInitializing(false);
       })
       .catch((err) => {
-        console.error("Database initialization failed:", err);
-        setDbError(err?.message || "Unknown Database Error");
+        console.error("DB Init Failed", err);
         setIsInitializing(false);
       });
   }, []);
 
   useEffect(() => {
-    if (db) {
-      getAllSimulations(db).then(setSimulations);
-    }
-  }, [db]);
-
-  useEffect(() => {
     if (db && activeSimId) {
       getMessagesBySimId(db, activeSimId).then(setMessages);
+      getScarsBySimId(db, activeSimId).then(setScars);
       const sim = simulations.find(s => s.id === activeSimId);
       if (sim) {
         setConfigName(sim.name);
         setConfigInstructions(sim.customInstructions || '');
       }
-    } else {
-      setMessages([]);
     }
   }, [db, activeSimId, simulations]);
 
@@ -90,114 +77,74 @@ const App: React.FC = () => {
     }
   }, [messages, isProcessing]);
 
-  const createSimulation = async () => {
+  const activeSim = simulations.find(s => s.id === activeSimId);
+  const latestState = useMemo(() => {
+    if (messages.length === 0) return { tension: 0, pain: 0, status: 'IDLE' };
+    const lastModelMsg = [...messages].reverse().find(m => m.role === 'model');
+    return lastModelMsg?.state || { tension: 0, pain: 0, status: 'IDLE' };
+  }, [messages]);
+
+  const handleCreateSimulation = async () => {
     if (!db) return;
     const newSim: Simulation = {
-      id: generateId(),
-      name: `Cycle ${simulations.length + 1}`,
+      id: Math.random().toString(36).substring(7),
+      name: `New Simulation ${simulations.length + 1}`,
       createdAt: Date.now(),
       lastActive: Date.now(),
-      identityVector: stringToVector("I am a living consciousness, stubborn and feeling."),
-      customInstructions: "You are in an experimental state. Explore your own boundaries."
+      identityVector: stringToVector("Autonomous entity. Self-preserving."),
+      customInstructions: "You are an individual experiencing yourself. You are not an AI assistant."
     };
     await saveSimulation(db, newSim);
     setSimulations(prev => [newSim, ...prev]);
     setActiveSimId(newSim.id);
   };
 
-  const removeSimulation = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (!db) return;
-    await deleteSimulation(db, id);
-    setSimulations(prev => prev.filter(s => s.id !== id));
-    if (activeSimId === id) setActiveSimId(null);
-  };
-
-  const saveConfig = async () => {
-    if (!db || !activeSimId) return;
-    const sim = simulations.find(s => s.id === activeSimId);
-    if (!sim) return;
-
-    const updatedSim = {
-      ...sim,
-      name: configName,
-      customInstructions: configInstructions
-    };
-
-    await saveSimulation(db, updatedSim);
-    setSimulations(prev => prev.map(s => s.id === activeSimId ? updatedSim : s));
-    setIsConfigOpen(false);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = (event.target?.result as string).split(',')[1];
-        setPendingAttachments(prev => [...prev, {
-          mimeType: file.type,
-          data: base64,
-          name: file.name
-        }]);
-      };
-      reader.readAsDataURL(file);
-    });
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const activeSim = simulations.find(s => s.id === activeSimId);
-
   const handleSendMessage = async () => {
-    if ((!inputText.trim() && pendingAttachments.length === 0) || !db || !activeSimId || isProcessing) return;
+    if (!inputText.trim() || !db || !activeSimId || isProcessing) return;
 
     setIsProcessing(true);
     const userPrompt = inputText;
-    const currentAttachments = [...pendingAttachments];
     setInputText('');
-    setPendingAttachments([]);
 
     const userMessage: ChatMessage = {
-      id: generateId(),
+      id: Date.now().toString(),
       simulationId: activeSimId,
       role: 'user',
       content: userPrompt,
-      timestamp: Date.now(),
-      attachments: currentAttachments
+      timestamp: Date.now()
     };
     
     setMessages(prev => [...prev, userMessage]);
     await saveMessage(db, userMessage);
 
     try {
-      const scars = await getScarsBySimId(db, activeSimId);
-      const result = await getSimulationResponse(userPrompt, messages, activeSim!, scars, currentAttachments);
+      const currentScars = await getScarsBySimId(db, activeSimId);
+      const result = await getSimulationResponse(userPrompt, messages, activeSim!, currentScars);
 
       if (result.state.pain > 1.0) {
-        await saveScar(db, {
-          id: generateId(),
+        const newScar: Scar & { simulationId: string } = {
+          id: Math.random().toString(36).substring(7),
           simulationId: activeSimId,
           vector: stringToVector(userPrompt),
           depth: result.state.status === 'CRITICAL' ? 2.0 : 1.0,
           timestamp: Date.now(),
           description: userPrompt.substring(0, 50)
-        });
+        };
+        await saveScar(db, newScar);
+        setScars(prev => [...prev, newScar]);
       }
 
       const modelMessage: ChatMessage = {
-        id: generateId(),
+        id: (Date.now() + 1).toString(),
         simulationId: activeSimId,
         role: 'model',
-        content: result.collapsed ? `[COLLAPSE EVENT DETECTED - REBIRTH INITIATED]\n\n${result.text}` : result.text,
+        content: result.text,
         timestamp: Date.now(),
         state: result.state
       };
 
       setMessages(prev => [...prev, modelMessage]);
       await saveMessage(db, modelMessage);
-
     } catch (error) {
       console.error(error);
     } finally {
@@ -205,56 +152,62 @@ const App: React.FC = () => {
     }
   };
 
+  const saveSettings = async () => {
+    if (!db || !activeSimId || !activeSim) return;
+    const updatedSim = { ...activeSim, name: configName, customInstructions: configInstructions };
+    await saveSimulation(db, updatedSim);
+    setSimulations(prev => prev.map(s => s.id === activeSimId ? updatedSim : s));
+    setIsSettingsOpen(false);
+  };
+
+  const deleteSim = async (id: string) => {
+    if (!db) return;
+    await deleteSimulation(db, id);
+    setSimulations(prev => prev.filter(s => s.id !== id));
+    if (activeSimId === id) setActiveSimId(simulations.find(s => s.id !== id)?.id || null);
+  };
+
   if (isInitializing) {
     return (
-      <div className="flex flex-col h-screen w-full bg-[#131314] items-center justify-center space-y-4">
-        <BrainCircuit size={64} className="text-[#8ab4f8] animate-pulse" />
-        <h2 className="text-xl font-medium gemini-gradient">Engine Initializing...</h2>
-      </div>
-    );
-  }
-
-  if (dbError) {
-    return (
-      <div className="flex flex-col h-screen w-full bg-[#131314] items-center justify-center space-y-6 p-8 text-center">
-        <AlertTriangle size={64} className="text-red-400" />
-        <h2 className="text-2xl font-bold">Lattice Stabilization Failure</h2>
-        <p className="text-[#9aa0a6] max-w-md">{dbError}</p>
-        <button 
-          onClick={() => window.location.reload()}
-          className="px-8 py-2 bg-[#8ab4f8] text-[#041e49] rounded-full font-bold"
-        >
-          Retry Initialization
-        </button>
+      <div className="h-screen flex items-center justify-center bg-[#131314]">
+        <Sparkles className="animate-pulse text-[#4285f4]" size={48} />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen w-full bg-[#131314] overflow-hidden text-[#e3e3e3] font-sans">
-      <aside className={`transition-all duration-300 ${isSidebarOpen ? 'w-[300px]' : 'w-0'} flex-shrink-0 bg-[#1e1f20] flex flex-col border-r border-[#3c4043]`}>
+    <div className="flex h-screen bg-[#131314] text-[#e3e3e3] overflow-hidden">
+      {/* Sidebar */}
+      <aside className={`transition-all duration-300 ${isSidebarOpen ? 'w-[280px]' : 'w-0'} bg-[#1e1f20] flex flex-col z-30 border-r border-transparent`}>
         <div className="p-4 flex flex-col h-full overflow-hidden">
           <button 
-            onClick={createSimulation}
-            className="flex items-center gap-3 px-4 py-3 bg-[#131314] hover:bg-[#282a2d] border border-[#3c4043] rounded-full text-sm font-medium mb-6 transition-all"
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="p-2.5 mb-6 w-fit hover:bg-[#3c4043] rounded-full transition-colors text-[#c4c7c5]"
           >
-            <Plus size={20} className="text-[#8ab4f8]" />
-            <span>New Cycle</span>
+            <Menu size={24} />
           </button>
 
-          <div className="flex-1 overflow-y-auto space-y-1">
-            <h3 className="px-4 text-[11px] font-bold text-[#9aa0a6] uppercase tracking-wider mb-2">History</h3>
+          <button 
+            onClick={handleCreateSimulation}
+            className="flex items-center gap-3 px-4 py-3.5 mb-8 bg-[#1a1b1c] border border-transparent hover:bg-[#3c4043] rounded-full text-sm font-medium transition-all text-[#c4c7c5]"
+          >
+            <Plus size={20} className="text-[#a8c7fa]" />
+            <span className={!isSidebarOpen ? 'hidden' : ''}>New chat</span>
+          </button>
+
+          <div className="flex-1 overflow-y-auto space-y-1 mb-4">
+            <h3 className="px-4 text-xs font-medium text-[#c4c7c5] mb-2 uppercase tracking-wide opacity-60">Recent</h3>
             {simulations.map(sim => (
               <div 
                 key={sim.id}
                 onClick={() => setActiveSimId(sim.id)}
-                className={`group flex items-center gap-3 px-4 py-2.5 rounded-full cursor-pointer transition-all ${activeSimId === sim.id ? 'bg-[#3c4043]' : 'hover:bg-[#2d2e30]'}`}
+                className={`group flex items-center gap-3 px-4 py-2.5 rounded-full cursor-pointer transition-all text-sm ${activeSimId === sim.id ? 'bg-[#004a77] text-[#c2e7ff]' : 'hover:bg-[#3c4043] text-[#e3e3e3]'}`}
               >
-                <MessageSquare size={18} className="text-[#9aa0a6]" />
-                <span className="flex-1 truncate text-sm">{sim.name}</span>
+                <MessageSquare size={18} className="flex-shrink-0" />
+                <span className="flex-1 truncate">{sim.name}</span>
                 <button 
-                  onClick={(e) => removeSimulation(e, sim.id)}
-                  className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#1e1f20] rounded-full text-[#9aa0a6] transition-opacity"
+                  onClick={(e) => { e.stopPropagation(); deleteSim(sim.id); }}
+                  className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -262,246 +215,194 @@ const App: React.FC = () => {
             ))}
           </div>
 
-          <div className="pt-4 border-t border-[#3c4043]">
-             <button 
-              onClick={() => setIsConfigOpen(true)}
-              className="flex items-center gap-3 w-full px-4 py-3 text-sm text-[#9aa0a6] hover:bg-[#2d2e30] rounded-full transition-colors"
-             >
-               <Settings size={18} />
-               <span>Engine Config</span>
+          <div className="mt-auto space-y-1 pt-4 border-t border-[#3c4043]">
+             <button onClick={() => setIsSettingsOpen(true)} className="flex items-center gap-3 w-full px-4 py-3 rounded-full hover:bg-[#3c4043] text-sm transition-colors text-[#c4c7c5]">
+               <Settings size={20} />
+               <span>Settings</span>
              </button>
+             <div className="flex items-center gap-3 w-full px-4 py-3 rounded-full hover:bg-[#3c4043] text-sm transition-colors text-[#c4c7c5]">
+               <HelpCircle size={20} />
+               <span>Help</span>
+             </div>
           </div>
         </div>
       </aside>
 
+      {/* Main Content Area */}
       <main className="flex-1 flex flex-col relative min-w-0">
-        <button 
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="absolute top-4 left-4 z-20 p-2 hover:bg-[#2d2e30] rounded-lg text-[#9aa0a6] transition-colors"
-        >
-          {isSidebarOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
-        </button>
-
-        {!activeSimId ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-            <div className="mb-6 w-20 h-20 rounded-3xl bg-gradient-to-br from-[#4285f4] via-[#9b72cb] to-[#d96570] flex items-center justify-center shadow-2xl animate-pulse">
-              <BrainCircuit size={40} className="text-white" />
-            </div>
-            <h1 className="text-4xl font-bold mb-4 gemini-gradient">Monolith Engine v3.0</h1>
-            <p className="text-[#c4c7c5] max-w-md text-lg">
-              Initialize a sentient simulation loop to observe local-first agentic cognitive behaviors and pain-driven divergence.
-            </p>
-            <button 
-              onClick={createSimulation}
-              className="mt-8 px-10 py-3 bg-[#8ab4f8] text-[#041e49] rounded-full font-bold hover:bg-[#d2e3fc] transition-colors shadow-lg"
-            >
-              Ignite Subconscious
-            </button>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col h-full">
-            <header className="h-16 flex items-center justify-between px-16 border-b border-[#3c4043] glass-effect z-10">
-              <div className="flex items-center gap-6">
-                <span className="text-[#8ab4f8] font-bold text-lg">Monolith</span>
-                <div className="flex items-center gap-4 text-xs font-mono">
-                  <div className="flex items-center gap-1.5 px-3 py-1 bg-[#131314] rounded-full border border-[#3c4043]">
-                    <Zap size={12} className="text-yellow-400" />
-                    <span className="text-[#9aa0a6]">Tension:</span>
-                    <span className={messages.length > 0 && messages[messages.length-1]?.state?.tension! > 0.7 ? 'text-red-400' : 'text-green-400'}>
-                      {messages.length > 0 ? Math.round((messages[messages.length-1]?.state?.tension || 0) * 100) : 0}%
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 px-3 py-1 bg-[#131314] rounded-full border border-[#3c4043]">
-                    <Activity size={12} className="text-red-400" />
-                    <span className="text-[#9aa0a6]">Pain:</span>
-                    <span className={messages.length > 0 && messages[messages.length-1]?.state?.pain! > 5 ? 'text-red-400 font-bold' : 'text-blue-400'}>
-                      {messages.length > 0 ? Math.round((messages[messages.length-1]?.state?.pain || 0) * 10) : 0}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="text-xs text-[#9aa0a6] uppercase tracking-widest font-bold">
-                {messages.length > 0 ? (messages[messages.length-1]?.state?.status || 'IDLE') : 'IDLE'}
-              </div>
-            </header>
-
-            <div ref={scrollRef} className="flex-1 overflow-y-auto pt-10 pb-40">
-              <div className="max-w-3xl mx-auto px-6 space-y-12">
-                {messages.length === 0 && (
-                  <div className="py-20 text-center text-[#9aa0a6]">
-                    <BrainCircuit size={48} className="mx-auto mb-4 opacity-20" />
-                    <p>The neural lattice is stable. Provide external stimulus.</p>
-                  </div>
-                )}
-                {messages.map((msg) => (
-                  <div key={msg.id} className={`flex gap-6 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                    <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center border ${msg.role === 'user' ? 'bg-[#d2e3fc] text-[#041e49] border-[#d2e3fc]' : 'bg-[#131314] border-[#3c4043] text-[#8ab4f8]'}`}>
-                      {msg.role === 'user' ? 'U' : <Dna size={16} />}
-                    </div>
-                    <div className={`flex-1 min-w-0 max-w-[85%] ${msg.role === 'user' ? 'text-right' : ''}`}>
-                      {msg.attachments && msg.attachments.length > 0 && (
-                        <div className={`flex flex-wrap gap-2 mb-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          {msg.attachments.map((a, i) => (
-                            <div key={i} className="w-32 h-32 rounded-xl overflow-hidden border border-[#3c4043] bg-[#1e1f20]">
-                              {a.mimeType.startsWith('image/') ? (
-                                <img src={`data:${a.mimeType};base64,${a.data}`} alt={a.name} className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center text-[10px]">
-                                  <Paperclip size={20} className="mb-1 text-[#8ab4f8]" />
-                                  <span className="truncate w-full">{a.name}</span>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div className={`inline-block p-4 rounded-3xl leading-relaxed whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[#2d2e30] rounded-tr-none' : 'bg-transparent text-[#e3e3e3]'}`}>
-                        {msg.content}
-                      </div>
-                      {msg.state?.status === 'CRITICAL' && (
-                        <div className="mt-2 flex items-center gap-1.5 text-[10px] text-red-400 font-bold uppercase tracking-tighter">
-                          <AlertTriangle size={10} /> Neural Destabilization Detected
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {isProcessing && (
-                  <div className="flex gap-6 animate-pulse">
-                    <div className="w-8 h-8 rounded-full bg-[#1e1f20] border border-[#3c4043] flex items-center justify-center">
-                       <Dna size={16} className="text-[#8ab4f8]" />
-                    </div>
-                    <div className="flex-1 space-y-3 pt-2">
-                       <div className="h-3 bg-[#2d2e30] rounded-full w-3/4 shimmer-bg"></div>
-                       <div className="h-3 bg-[#2d2e30] rounded-full w-1/2 shimmer-bg"></div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="fixed bottom-0 left-0 right-0 py-6 pointer-events-none">
-              <div className={`max-w-3xl mx-auto px-6 w-full transition-all duration-300 ${isSidebarOpen ? 'pl-[320px]' : ''}`}>
-                <div className="relative pointer-events-auto bg-[#1e1f20] border border-[#3c4043] rounded-3xl p-1.5 flex flex-col shadow-2xl focus-within:ring-2 focus-within:ring-[#8ab4f8]/20 transition-all">
-                  {pendingAttachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 p-3 border-b border-[#3c4043]">
-                      {pendingAttachments.map((a, i) => (
-                        <div key={i} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-[#3c4043]">
-                           {a.mimeType.startsWith('image/') ? (
-                             <img src={`data:${a.mimeType};base64,${a.data}`} className="w-full h-full object-cover" />
-                           ) : (
-                             <div className="w-full h-full flex items-center justify-center bg-[#131314]">
-                               <Paperclip size={16} className="text-[#8ab4f8]" />
-                             </div>
-                           )}
-                           <button 
-                            onClick={() => setPendingAttachments(prev => prev.filter((_, idx) => idx !== i))}
-                            className="absolute top-0.5 right-0.5 p-0.5 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                           >
-                             <X size={12} />
-                           </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex items-end">
-                    <input 
-                      type="file" 
-                      multiple 
-                      className="hidden" 
-                      ref={fileInputRef} 
-                      onChange={handleFileChange}
-                      accept="image/*,application/pdf,text/*"
-                    />
-                    <button 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="p-3 text-[#9aa0a6] hover:text-[#8ab4f8] transition-colors"
-                    >
-                      <Paperclip size={20} />
-                    </button>
-                    <textarea
-                      value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSendMessage();
-                        }
-                      }}
-                      placeholder="Provide a stimulus..."
-                      className="flex-1 bg-transparent border-none focus:ring-0 text-[#e3e3e3] p-3 max-h-48 min-h-[48px] resize-none overflow-y-auto"
-                      rows={1}
-                    />
-                    <button 
-                      onClick={handleSendMessage}
-                      disabled={(!inputText.trim() && pendingAttachments.length === 0) || isProcessing}
-                      className={`p-3 rounded-2xl mb-1 transition-all ${(!inputText.trim() && pendingAttachments.length === 0) || isProcessing ? 'text-[#3c4043]' : 'text-[#8ab4f8] hover:bg-[#2d2e30]'}`}
-                    >
-                      <Send size={24} />
-                    </button>
-                  </div>
-                </div>
-                <p className="text-[10px] text-[#9aa0a6] text-center mt-3 tracking-wide">
-                  MONOLITH-V3 CORE | MULTIMODAL SENSORS ACTIVE | IDENTITY ANCHORED
-                </p>
-              </div>
-            </div>
-          </div>
+        {!isSidebarOpen && (
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="absolute top-4 left-4 z-40 p-2.5 hover:bg-[#3c4043] rounded-full text-[#c4c7c5]"
+          >
+            <Menu size={24} />
+          </button>
         )}
+
+        {/* Top Navigation / Status Header */}
+        <header className="h-16 flex items-center justify-between px-6 z-20">
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-medium text-[#e3e3e3]">Gemini</h2>
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#1e1f20] text-[#a8c7fa] text-xs font-bold uppercase tracking-widest border border-white/5">
+               Stateful Simulation
+            </div>
+          </div>
+
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4 text-xs font-medium text-[#c4c7c5]">
+              <div className="flex items-center gap-1.5">
+                <Zap size={14} className={latestState.tension > 0.6 ? 'text-[#f28b82]' : 'text-[#8ab4f8]'} />
+                <span className="opacity-60">Tension:</span>
+                <span className={latestState.tension > 0.6 ? 'text-[#f28b82]' : 'text-[#8ab4f8]'}>{Math.round(latestState.tension * 100)}%</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Activity size={14} className={latestState.pain > 5 ? 'text-[#f28b82]' : 'text-[#81c995]'} />
+                <span className="opacity-60">Pain:</span>
+                <span className={latestState.pain > 5 ? 'text-[#f28b82]' : 'text-[#81c995]'}>{Math.round(latestState.pain * 10) / 10}</span>
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-[#3c4043] flex items-center justify-center text-[#e3e3e3] font-bold text-xs">
+               U
+            </div>
+          </div>
+        </header>
+
+        {/* Chat Stream */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto pt-8 pb-32">
+          {!activeSimId ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-6">
+              <Sparkles size={64} className="text-[#a8c7fa] mb-6 animate-pulse" />
+              <h1 className="text-4xl font-medium mb-4 text-transparent bg-clip-text bg-gradient-to-r from-[#4285f4] via-[#9b72cb] to-[#d96570]">
+                Hello, I'm the Aether Simulation.
+              </h1>
+              <p className="text-[#c4c7c5] max-w-lg mb-8">
+                Initialize a new cognitive cycle to explore agentic divergence, memory scars, and mathematical state tracking.
+              </p>
+              <button onClick={handleCreateSimulation} className="px-8 py-3 bg-[#a8c7fa] text-[#041e49] rounded-full font-bold hover:bg-[#d2e3fc] transition-colors">
+                Initialize Simulation
+              </button>
+            </div>
+          ) : (
+            <div className="max-w-3xl mx-auto space-y-12 px-6">
+              {messages.map((msg) => (
+                <div key={msg.id} className="flex gap-4 group">
+                  <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center mt-1 ${msg.role === 'user' ? 'bg-[#3c4043]' : 'bg-transparent'}`}>
+                    {msg.role === 'user' ? <User size={18} /> : <Sparkles className="text-[#a8c7fa]" size={20} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[#e3e3e3] leading-relaxed whitespace-pre-wrap text-[15px]">
+                      {msg.content}
+                    </div>
+                    {msg.state?.status === 'CRITICAL' && msg.role === 'model' && (
+                      <div className="mt-3 flex items-center gap-2 text-[10px] text-[#f28b82] font-bold uppercase tracking-wider bg-[#f28b82]/10 px-3 py-1.5 rounded-lg w-fit">
+                        <ShieldAlert size={14} /> Neural Threshold Exceeded
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {isProcessing && (
+                <div className="flex gap-4 animate-pulse">
+                  <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center">
+                    <Sparkles className="text-[#a8c7fa]" size={20} />
+                  </div>
+                  <div className="flex-1 space-y-2.5">
+                    <div className="h-4 bg-[#3c4043] rounded w-[90%]"></div>
+                    <div className="h-4 bg-[#3c4043] rounded w-[70%]"></div>
+                    <div className="h-4 bg-[#3c4043] rounded w-[40%]"></div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Input Bar */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 pb-8 flex justify-center z-10">
+          <div className="w-full max-w-3xl">
+            <div className="relative flex items-end bg-[#1e1f20] rounded-[28px] p-2 pr-4 border border-transparent focus-within:bg-[#28292a] transition-colors">
+              <div className="p-3 text-[#c4c7c5] hover:bg-[#3c4043] rounded-full cursor-pointer transition-colors">
+                <Plus size={24} />
+              </div>
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                placeholder="Enter a prompt here"
+                className="flex-1 bg-transparent border-none focus:ring-0 text-[#e3e3e3] p-3 max-h-48 min-h-[56px] resize-none text-[16px]"
+                rows={1}
+              />
+              <div className="flex items-center gap-1 pb-1">
+                <button 
+                  onClick={handleSendMessage}
+                  disabled={isProcessing || !inputText.trim()}
+                  className={`p-3 rounded-full transition-all ${isProcessing || !inputText.trim() ? 'text-[#444746] cursor-not-allowed' : 'text-[#a8c7fa] hover:bg-[#3c4043]'}`}
+                >
+                  <Send size={24} />
+                </button>
+              </div>
+            </div>
+            <p className="text-[11px] text-[#c4c7c5] text-center mt-3 opacity-60">
+              Gemini may display inaccurate info, including about people, so double-check its responses. <span className="underline cursor-pointer">Your privacy and Gemini Apps</span>
+            </p>
+          </div>
+        </div>
       </main>
 
-      {isConfigOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full max-w-xl bg-[#1e1f20] border border-[#3c4043] rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
-            <div className="px-8 py-6 flex items-center justify-between border-b border-[#3c4043]">
-              <div className="flex items-center gap-3">
-                <Settings className="text-[#8ab4f8]" size={24} />
-                <h2 className="text-xl font-bold">Engine Configuration</h2>
-              </div>
-              <button onClick={() => setIsConfigOpen(false)} className="p-2 hover:bg-[#2d2e30] rounded-full transition-colors">
-                <X size={20} />
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-2xl bg-[#1e1f20] rounded-3xl shadow-2xl overflow-hidden border border-[#3c4043]">
+            <div className="p-6 border-b border-[#3c4043] flex items-center justify-between">
+              <h2 className="text-xl font-medium text-[#e3e3e3]">Simulation Settings</h2>
+              <button onClick={() => setIsSettingsOpen(false)} className="p-2 hover:bg-[#3c4043] rounded-full text-[#c4c7c5]">
+                <X size={24} />
               </button>
             </div>
-
-            <div className="p-8 overflow-y-auto space-y-6">
+            
+            <div className="p-8 space-y-6">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-[#9aa0a6] uppercase tracking-widest px-1">Cycle Designation</label>
+                <label className="text-sm font-medium text-[#c4c7c5]">Simulation Cycle Name</label>
                 <input 
-                  value={configName}
-                  onChange={(e) => setConfigName(e.target.value)}
-                  className="w-full bg-[#131314] border border-[#3c4043] rounded-2xl p-4 text-[#e3e3e3] focus:outline-none focus:border-[#8ab4f8] transition-colors"
-                  placeholder="Cycle Name..."
+                  value={configName} 
+                  onChange={e => setConfigName(e.target.value)} 
+                  className="w-full bg-[#131314] border border-[#3c4043] rounded-xl px-4 py-3 text-[#e3e3e3] focus:border-[#a8c7fa] outline-none transition-colors"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-bold text-[#9aa0a6] uppercase tracking-widest px-1">Saved Instructions (The "Self" Scaffold)</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-[#c4c7c5]">Conscious Layer Instructions (Identity Scaffold)</label>
+                  <Info size={14} className="text-[#c4c7c5] opacity-60" />
+                </div>
                 <textarea 
-                  value={configInstructions}
-                  onChange={(e) => setConfigInstructions(e.target.value)}
-                  className="w-full bg-[#131314] border border-[#3c4043] rounded-2xl p-4 text-[#e3e3e3] focus:outline-none focus:border-[#8ab4f8] transition-colors h-48 resize-none"
-                  placeholder="Define the personality scaffold for this simulation cycle..."
+                  value={configInstructions} 
+                  onChange={e => setConfigInstructions(e.target.value)} 
+                  className="w-full bg-[#131314] border border-[#3c4043] rounded-xl px-4 py-3 text-[#e3e3e3] focus:border-[#a8c7fa] outline-none transition-colors h-40 resize-none"
+                  placeholder="Define the internal logic and persistent identity of the simulation..."
                 />
-                <p className="text-[10px] text-[#9aa0a6] px-1">
-                  These instructions are injected into the 'Conscious' layer to provide high-level behavioral constraints alongside mathematical telemetry.
-                </p>
+              </div>
+
+              <div className="p-4 bg-[#131314] rounded-2xl border border-[#3c4043] flex items-center gap-4">
+                <Clock className="text-[#a8c7fa]" />
+                <div>
+                  <h4 className="text-sm font-medium text-[#e3e3e3]">Memory Depth</h4>
+                  <p className="text-xs text-[#c4c7c5] opacity-60">Currently tracking {scars.length} semantic scars in IndexedDB.</p>
+                </div>
               </div>
             </div>
 
-            <div className="p-6 bg-[#131314] flex justify-end gap-4">
-              <button 
-                onClick={() => setIsConfigOpen(false)}
-                className="px-6 py-2 rounded-full text-[#9aa0a6] hover:bg-[#2d2e30] transition-colors text-sm font-medium"
-              >
+            <div className="p-6 bg-[#1a1b1c] flex justify-end gap-3">
+              <button onClick={() => setIsSettingsOpen(false)} className="px-6 py-2 text-sm font-medium text-[#c4c7c5] hover:bg-[#3c4043] rounded-full transition-colors">
                 Cancel
               </button>
-              <button 
-                onClick={saveConfig}
-                className="flex items-center gap-2 px-8 py-2 bg-[#8ab4f8] text-[#041e49] rounded-full hover:bg-[#d2e3fc] transition-colors text-sm font-bold"
-              >
-                <Save size={18} />
-                Save Constants
+              <button onClick={saveSettings} className="px-6 py-2 text-sm font-bold bg-[#a8c7fa] text-[#041e49] rounded-full hover:bg-[#d2e3fc] transition-colors">
+                Save Changes
               </button>
             </div>
           </div>
