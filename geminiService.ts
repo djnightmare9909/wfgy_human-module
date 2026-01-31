@@ -1,7 +1,7 @@
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import { ChatMessage, Simulation, Scar, Attachment } from "./types.ts";
-import { SYSTEM_PROMPT } from "./systemPrompt.ts";
-import { processSubconscious } from "./logic.ts";
+import { ChatMessage, Simulation, Scar, Attachment } from "./types";
+import { SYSTEM_PROMPT } from "./systemPrompt";
+import { processSubconscious } from "./logic";
 
 export const getSimulationResponse = async (
   prompt: string,

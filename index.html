@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini | Stateful Simulation</title>
+    <title>Aether Engine | Stateful Simulation</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <script>
+      // Ensure process.env exists for the GenAI SDK and other environment variables
       window.process = window.process || { env: {} };
     </script>
     <style>
@@ -16,6 +17,9 @@
           font-family: 'Inter', sans-serif; 
           background-color: #131314;
           color: #e3e3e3;
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
         }
         .gemini-sidebar { background-color: #1e1f20; }
         .gemini-bg { background-color: #131314; }
@@ -24,15 +28,23 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #3c4043; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #5f6368; }
+
+        /* Mobile specific adjustments */
+        @media (max-width: 640px) {
+          .mobile-sidebar-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+          }
+        }
     </style>
 <script type="importmap">
 {
   "imports": {
-    "lucide-react": "https://esm.sh/lucide-react@^0.475.0",
     "@google/genai": "https://esm.sh/@google/genai@^1.39.0",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
     "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4"
+    "react": "https://esm.sh/react@^19.2.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0"
   }
 }
 </script>

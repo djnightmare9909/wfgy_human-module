@@ -1,5 +1,4 @@
-
-import { Simulation, ChatMessage, Scar } from './types.ts';
+import { Simulation, ChatMessage, Scar } from './types';
 
 const DB_NAME = 'MonolithEngineDB';
 const DB_VERSION = 2;
