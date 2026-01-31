@@ -1,0 +1,8 @@
+{
+  "name": "Aether Engine: Stateful AI Simulation",
+  "description": "A high-fidelity AI simulation engine featuring local-first storage, agentic world tracking with progress clocks, and contextual file-based RAG.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
