@@ -27,4 +27,29 @@ export function euclideanDistance(v1: number[], v2: number[]): number {
 export function cosineSimilarity(v1: number[], v2: number[]): number {
   const dot = v1.reduce((sum, val, i) => sum + val * v2[i], 0);
   const mag1 = Math.sqrt(v1.reduce((sum, v) => sum + v * v, 0));
-  const mag2 = Math.sqrt(v2.reduce((sum
+  const mag2 = Math.sqrt(v2.reduce((sum, v) => sum + v * v, 0));
+  return dot / (mag1 * mag2);
+}
+
+/**
+ * Calculates Scar Potential Energy (Pain)
+ * Psi_scar(x) = sum( Dk / ||x - x_err||^2 )
+ */
+export function calculateScarPotential(currentVec: number[], scars: Scar[]): number {
+  let potential = 0;
+  scars.forEach(scar => {
+    const distSq = Math.pow(euclideanDistance(currentVec, scar.vector), 2);
+    // Avoid division by zero with small epsilon
+    potential += scar.depth / (distSq + 0.01);
+  });
+  return potential;
+}
+
+/**
+ * Calculates Tension (Stress)
+ * Delta S = CosineDistance(Input, Identity)
+ */
+export function calculateTension(currentVec: number[], identityVec: number[]): number {
+  const similarity = cosineSimilarity(currentVec, identityVec);
+  return 1 - ((similarity + 1) / 2); // Normalized 0 to 1
+}

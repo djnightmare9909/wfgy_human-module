@@ -14,8 +14,7 @@ import {
   Sparkles,
   Info,
   HelpCircle,
-  Clock,
-  LogOut
+  Clock
 } from 'lucide-react';
 import { Simulation, ChatMessage, Scar } from './types';
 import { initDB, getAllSimulations, saveSimulation, saveMessage, getMessagesBySimId, deleteSimulation, getScarsBySimId, saveScar } from './db';
@@ -31,7 +30,8 @@ const App: React.FC = () => {
   const [inputText, setInputText] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
+  // Default to false to prevent black screen if DB init is delayed or fails on mobile
+  const [isInitializing, setIsInitializing] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Settings form states
@@ -41,6 +41,8 @@ const App: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // We still set it to true briefly if we want the spinner, 
+    // but the catch ensures it doesn't stay stuck.
     initDB()
       .then((dbInstance) => {
         setDb(dbInstance);
@@ -49,10 +51,11 @@ const App: React.FC = () => {
       .then((sims) => {
         setSimulations(sims);
         if (sims.length > 0) setActiveSimId(sims[0].id);
-        setIsInitializing(false);
       })
       .catch((err) => {
         console.error("DB Init Failed", err);
+      })
+      .finally(() => {
         setIsInitializing(false);
       });
   }, []);
@@ -186,7 +189,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-[#131314] text-[#e3e3e3] overflow-hidden relative">
-      {/* Mobile Backdrop */}
+      {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && window.innerWidth < 1024 && (
         <div 
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden" 
