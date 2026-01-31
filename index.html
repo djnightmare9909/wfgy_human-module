@@ -9,9 +9,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <script>
-      // Ensure process.env exists for the GenAI SDK and other environment variables
-      // This shim must be in the head to be available to all modules immediately.
-      window.process = window.process || { env: {} };
+      // Essential global shim for the GenAI SDK and environment compatibility.
+      // Mobile browsers crash if 'process' is accessed while undefined.
+      window.process = { env: { API_KEY: "" } };
+      // Note: The actual API_KEY is injected into process.env.API_KEY by the environment.
     </script>
     <style>
         body { 
@@ -41,11 +42,11 @@
 <script type="importmap">
 {
   "imports": {
+    "react/": "https://esm.sh/react@^19.2.4/",
     "react": "https://esm.sh/react@^19.2.4",
     "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.39.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.563.0"
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.39.0"
   }
 }
 </script>

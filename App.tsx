@@ -30,7 +30,7 @@ const App: React.FC = () => {
   const [inputText, setInputText] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 1024);
   const [isProcessing, setIsProcessing] = useState(false);
-  // Default to false to prevent black screen if DB init is delayed or fails on mobile
+  // Default to false to avoid a permanent blocking state on mobile
   const [isInitializing, setIsInitializing] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -41,10 +41,15 @@ const App: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // We still set it to true briefly if we want the spinner, 
-    // but the catch ensures it doesn't stay stuck.
+    // Fail-open strategy: Show UI after a short timeout even if DB is slow
+    const safetyTimeout = setTimeout(() => {
+      setIsInitializing(false);
+      console.warn("Initialization timed out; proceeding without local storage.");
+    }, 2000);
+
     initDB()
       .then((dbInstance) => {
+        clearTimeout(safetyTimeout);
         setDb(dbInstance);
         return getAllSimulations(dbInstance);
       })
@@ -106,7 +111,7 @@ const App: React.FC = () => {
   };
 
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !db || !activeSimId || isProcessing || !activeSim) return;
+    if (!inputText.trim() || !activeSimId || isProcessing || !activeSim) return;
 
     setIsProcessing(true);
     const userPrompt = inputText;
@@ -121,13 +126,13 @@ const App: React.FC = () => {
     };
     
     setMessages(prev => [...prev, userMessage]);
-    await saveMessage(db, userMessage);
+    if (db) await saveMessage(db, userMessage);
 
     try {
-      const currentScars = await getScarsBySimId(db, activeSimId);
+      const currentScars = db ? await getScarsBySimId(db, activeSimId) : [];
       const result = await getSimulationResponse(userPrompt, messages, activeSim, currentScars);
 
-      if (result.state.pain > 1.0) {
+      if (result.state.pain > 1.0 && db) {
         const newScar: Scar & { simulationId: string } = {
           id: Math.random().toString(36).substring(7),
           simulationId: activeSimId,
@@ -150,7 +155,7 @@ const App: React.FC = () => {
       };
 
       setMessages(prev => [...prev, modelMessage]);
-      await saveMessage(db, modelMessage);
+      if (db) await saveMessage(db, modelMessage);
     } catch (error) {
       console.error(error);
     } finally {
