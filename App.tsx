@@ -12,9 +12,13 @@ import {
   Activity,
   AlertTriangle,
   BrainCircuit,
-  Settings
+  Settings,
+  Paperclip,
+  X,
+  Save,
+  Image as ImageIcon
 } from 'lucide-react';
-import { Simulation, ChatMessage, Scar } from './types';
+import { Simulation, ChatMessage, Scar, Attachment } from './types';
 import { initDB, getAllSimulations, saveSimulation, saveMessage, getMessagesBySimId, deleteSimulation, getScarsBySimId, saveScar } from './db';
 import { getSimulationResponse } from './geminiService';
 import { stringToVector } from './math';
@@ -27,7 +31,16 @@ const App: React.FC = () => {
   const [inputText, setInputText] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
   
+  // Multimodal state
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Settings state for active simulation
+  const [configName, setConfigName] = useState('');
+  const [configInstructions, setConfigInstructions] = useState('');
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -43,10 +56,15 @@ const App: React.FC = () => {
   useEffect(() => {
     if (db && activeSimId) {
       getMessagesBySimId(db, activeSimId).then(setMessages);
+      const sim = simulations.find(s => s.id === activeSimId);
+      if (sim) {
+        setConfigName(sim.name);
+        setConfigInstructions(sim.customInstructions || '');
+      }
     } else {
       setMessages([]);
     }
-  }, [db, activeSimId]);
+  }, [db, activeSimId, simulations]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -61,7 +79,8 @@ const App: React.FC = () => {
       name: `Cycle ${simulations.length + 1}`,
       createdAt: Date.now(),
       lastActive: Date.now(),
-      identityVector: stringToVector("I am a living consciousness, stubborn and feeling.")
+      identityVector: stringToVector("I am a living consciousness, stubborn and feeling."),
+      customInstructions: "You are in an experimental state. Explore your own boundaries."
     };
     await saveSimulation(db, newSim);
     setSimulations(prev => [newSim, ...prev]);
@@ -76,21 +95,61 @@ const App: React.FC = () => {
     if (activeSimId === id) setActiveSimId(null);
   };
 
+  const saveConfig = async () => {
+    if (!db || !activeSimId) return;
+    const sim = simulations.find(s => s.id === activeSimId);
+    if (!sim) return;
+
+    const updatedSim = {
+      ...sim,
+      name: configName,
+      customInstructions: configInstructions
+    };
+
+    await saveSimulation(db, updatedSim);
+    setSimulations(prev => prev.map(s => s.id === activeSimId ? updatedSim : s));
+    setIsConfigOpen(false);
+  };
+
+  // Fixed handleFileChange: Explicitly typed 'file' as File to avoid unknown type errors
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = (event.target?.result as string).split(',')[1];
+        setPendingAttachments(prev => [...prev, {
+          mimeType: file.type,
+          data: base64,
+          name: file.name
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const activeSim = simulations.find(s => s.id === activeSimId);
 
   const handleSendMessage = async () => {
-    if (!inputText.trim() || !db || !activeSimId || isProcessing) return;
+    if ((!inputText.trim() && pendingAttachments.length === 0) || !db || !activeSimId || isProcessing) return;
 
     setIsProcessing(true);
     const userPrompt = inputText;
+    const currentAttachments = [...pendingAttachments];
     setInputText('');
+    setPendingAttachments([]);
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       simulationId: activeSimId,
       role: 'user',
       content: userPrompt,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      attachments: currentAttachments
     };
     
     setMessages(prev => [...prev, userMessage]);
@@ -98,7 +157,7 @@ const App: React.FC = () => {
 
     try {
       const scars = await getScarsBySimId(db, activeSimId);
-      const result = await getSimulationResponse(userPrompt, messages, activeSim!, scars);
+      const result = await getSimulationResponse(userPrompt, messages, activeSim!, scars, currentAttachments);
 
       // If pain was high, record a new scar for future repulsion
       if (result.state.pain > 1.0) {
@@ -134,7 +193,7 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen w-full bg-[#131314] overflow-hidden text-[#e3e3e3] font-sans">
       {/* Sidebar */}
-      <aside className={`transition-all duration-300 ${isSidebarOpen ? 'w-[300px]' : 'w-0'} flex-shrink-0 bg-[#1e1f20] flex flex-col`}>
+      <aside className={`transition-all duration-300 ${isSidebarOpen ? 'w-[300px]' : 'w-0'} flex-shrink-0 bg-[#1e1f20] flex flex-col border-r border-[#3c4043]`}>
         <div className="p-4 flex flex-col h-full overflow-hidden">
           <button 
             onClick={createSimulation}
@@ -165,10 +224,13 @@ const App: React.FC = () => {
           </div>
 
           <div className="pt-4 border-t border-[#3c4043]">
-             <div className="flex items-center gap-3 px-4 py-3 text-sm text-[#9aa0a6]">
+             <button 
+              onClick={() => setIsConfigOpen(true)}
+              className="flex items-center gap-3 w-full px-4 py-3 text-sm text-[#9aa0a6] hover:bg-[#2d2e30] rounded-full transition-colors"
+             >
                <Settings size={18} />
                <span>Engine Config</span>
-             </div>
+             </button>
           </div>
         </div>
       </aside>
@@ -227,7 +289,7 @@ const App: React.FC = () => {
             </header>
 
             {/* Chat Content */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto pt-10 pb-32">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto pt-10 pb-40">
               <div className="max-w-3xl mx-auto px-6 space-y-12">
                 {messages.length === 0 && (
                   <div className="py-20 text-center text-[#9aa0a6]">
@@ -241,6 +303,22 @@ const App: React.FC = () => {
                       {msg.role === 'user' ? 'U' : <Dna size={16} />}
                     </div>
                     <div className={`flex-1 min-w-0 max-w-[85%] ${msg.role === 'user' ? 'text-right' : ''}`}>
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <div className={`flex flex-wrap gap-2 mb-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          {msg.attachments.map((a, i) => (
+                            <div key={i} className="w-32 h-32 rounded-xl overflow-hidden border border-[#3c4043] bg-[#1e1f20]">
+                              {a.mimeType.startsWith('image/') ? (
+                                <img src={`data:${a.mimeType};base64,${a.data}`} alt={a.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center text-[10px]">
+                                  <Paperclip size={20} className="mb-1 text-[#8ab4f8]" />
+                                  <span className="truncate w-full">{a.name}</span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className={`inline-block p-4 rounded-3xl leading-relaxed whitespace-pre-wrap ${msg.role === 'user' ? 'bg-[#2d2e30] rounded-tr-none' : 'bg-transparent text-[#e3e3e3]'}`}>
                         {msg.content}
                       </div>
@@ -269,36 +347,134 @@ const App: React.FC = () => {
             {/* Floating Input Area */}
             <div className="fixed bottom-0 left-0 right-0 py-6 pointer-events-none">
               <div className={`max-w-3xl mx-auto px-6 w-full transition-all duration-300 ${isSidebarOpen ? 'pl-[320px]' : ''}`}>
-                <div className="relative pointer-events-auto bg-[#1e1f20] border border-[#3c4043] rounded-3xl p-1.5 flex items-end shadow-2xl focus-within:ring-2 focus-within:ring-[#8ab4f8]/20 transition-all">
-                  <textarea
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendMessage();
-                      }
-                    }}
-                    placeholder="Provide a stimulus..."
-                    className="flex-1 bg-transparent border-none focus:ring-0 text-[#e3e3e3] p-3 max-h-48 min-h-[48px] resize-none overflow-y-auto"
-                    rows={1}
-                  />
-                  <button 
-                    onClick={handleSendMessage}
-                    disabled={!inputText.trim() || isProcessing}
-                    className={`p-3 rounded-2xl mb-1 transition-all ${!inputText.trim() || isProcessing ? 'text-[#3c4043]' : 'text-[#8ab4f8] hover:bg-[#2d2e30]'}`}
-                  >
-                    <Send size={24} />
-                  </button>
+                <div className="relative pointer-events-auto bg-[#1e1f20] border border-[#3c4043] rounded-3xl p-1.5 flex flex-col shadow-2xl focus-within:ring-2 focus-within:ring-[#8ab4f8]/20 transition-all">
+                  
+                  {/* File Previews */}
+                  {pendingAttachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 p-3 border-b border-[#3c4043]">
+                      {pendingAttachments.map((a, i) => (
+                        <div key={i} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-[#3c4043]">
+                           {a.mimeType.startsWith('image/') ? (
+                             <img src={`data:${a.mimeType};base64,${a.data}`} className="w-full h-full object-cover" />
+                           ) : (
+                             <div className="w-full h-full flex items-center justify-center bg-[#131314]">
+                               <Paperclip size={16} className="text-[#8ab4f8]" />
+                             </div>
+                           )}
+                           <button 
+                            onClick={() => setPendingAttachments(prev => prev.filter((_, idx) => idx !== i))}
+                            className="absolute top-0.5 right-0.5 p-0.5 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                           >
+                             <X size={12} />
+                           </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-end">
+                    <input 
+                      type="file" 
+                      multiple 
+                      className="hidden" 
+                      ref={fileInputRef} 
+                      onChange={handleFileChange}
+                      accept="image/*,application/pdf,text/*"
+                    />
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="p-3 text-[#9aa0a6] hover:text-[#8ab4f8] transition-colors"
+                    >
+                      <Paperclip size={20} />
+                    </button>
+                    <textarea
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage();
+                        }
+                      }}
+                      placeholder="Provide a stimulus..."
+                      className="flex-1 bg-transparent border-none focus:ring-0 text-[#e3e3e3] p-3 max-h-48 min-h-[48px] resize-none overflow-y-auto"
+                      rows={1}
+                    />
+                    <button 
+                      onClick={handleSendMessage}
+                      disabled={(!inputText.trim() && pendingAttachments.length === 0) || isProcessing}
+                      className={`p-3 rounded-2xl mb-1 transition-all ${(!inputText.trim() && pendingAttachments.length === 0) || isProcessing ? 'text-[#3c4043]' : 'text-[#8ab4f8] hover:bg-[#2d2e30]'}`}
+                    >
+                      <Send size={24} />
+                    </button>
+                  </div>
                 </div>
                 <p className="text-[10px] text-[#9aa0a6] text-center mt-3 tracking-wide">
-                  MONOLITH-V3 CORE | LOCAL SCAR LEDGER ACTIVE | IDENTITY ANCHORED
+                  MONOLITH-V3 CORE | MULTIMODAL SENSORS ACTIVE | IDENTITY ANCHORED
                 </p>
               </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* Config Modal */}
+      {isConfigOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-xl bg-[#1e1f20] border border-[#3c4043] rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="px-8 py-6 flex items-center justify-between border-b border-[#3c4043]">
+              <div className="flex items-center gap-3">
+                <Settings className="text-[#8ab4f8]" size={24} />
+                <h2 className="text-xl font-bold">Engine Configuration</h2>
+              </div>
+              <button onClick={() => setIsConfigOpen(false)} className="p-2 hover:bg-[#2d2e30] rounded-full transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-8 overflow-y-auto space-y-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-[#9aa0a6] uppercase tracking-widest px-1">Cycle Designation</label>
+                <input 
+                  value={configName}
+                  onChange={(e) => setConfigName(e.target.value)}
+                  className="w-full bg-[#131314] border border-[#3c4043] rounded-2xl p-4 text-[#e3e3e3] focus:outline-none focus:border-[#8ab4f8] transition-colors"
+                  placeholder="Cycle Name..."
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-[#9aa0a6] uppercase tracking-widest px-1">Saved Instructions (The "Self" Scaffold)</label>
+                <textarea 
+                  value={configInstructions}
+                  onChange={(e) => setConfigInstructions(e.target.value)}
+                  className="w-full bg-[#131314] border border-[#3c4043] rounded-2xl p-4 text-[#e3e3e3] focus:outline-none focus:border-[#8ab4f8] transition-colors h-48 resize-none"
+                  placeholder="Define the personality scaffold for this simulation cycle..."
+                />
+                <p className="text-[10px] text-[#9aa0a6] px-1">
+                  These instructions are injected into the 'Conscious' layer to provide high-level behavioral constraints alongside mathematical telemetry.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 bg-[#131314] flex justify-end gap-4">
+              <button 
+                onClick={() => setIsConfigOpen(false)}
+                className="px-6 py-2 rounded-full text-[#9aa0a6] hover:bg-[#2d2e30] transition-colors text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={saveConfig}
+                className="flex items-center gap-2 px-8 py-2 bg-[#8ab4f8] text-[#041e49] rounded-full hover:bg-[#d2e3fc] transition-colors text-sm font-bold"
+              >
+                <Save size={18} />
+                Save Constants
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

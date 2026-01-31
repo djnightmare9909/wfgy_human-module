@@ -25,6 +25,13 @@ export interface Simulation {
   createdAt: number;
   lastActive: number;
   identityVector: number[];
+  customInstructions?: string;
+}
+
+export interface Attachment {
+  mimeType: string;
+  data: string; // base64
+  name: string;
 }
 
 export interface ChatMessage {
@@ -34,4 +41,5 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   state?: NeuralState;
+  attachments?: Attachment[];
 }
