@@ -1,30 +1,34 @@
 
-import { Simulation, ChatMessage, Scar } from './types';
+import { Simulation, ChatMessage, Scar } from './types.ts';
 
 const DB_NAME = 'MonolithEngineDB';
 const DB_VERSION = 2;
 
 export const initDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    try {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains('simulations')) {
-        db.createObjectStore('simulations', { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains('messages')) {
-        const messageStore = db.createObjectStore('messages', { keyPath: 'id' });
-        messageStore.createIndex('simulationId', 'simulationId', { unique: false });
-      }
-      if (!db.objectStoreNames.contains('scars')) {
-        const scarStore = db.createObjectStore('scars', { keyPath: 'id' });
-        scarStore.createIndex('simulationId', 'simulationId', { unique: false });
-      }
-    };
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains('simulations')) {
+          db.createObjectStore('simulations', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('messages')) {
+          const messageStore = db.createObjectStore('messages', { keyPath: 'id' });
+          messageStore.createIndex('simulationId', 'simulationId', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('scars')) {
+          const scarStore = db.createObjectStore('scars', { keyPath: 'id' });
+          scarStore.createIndex('simulationId', 'simulationId', { unique: false });
+        }
+      };
 
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    } catch (err) {
+      reject(err);
+    }
   });
 };
 

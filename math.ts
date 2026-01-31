@@ -1,5 +1,5 @@
 
-import { Scar } from './types';
+import { Scar } from './types.ts';
 
 /**
  * Deterministic local vectorization for offline-first semantic simulation.

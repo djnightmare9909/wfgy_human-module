@@ -15,16 +15,24 @@ import {
   Settings,
   Paperclip,
   X,
-  Save,
-  Image as ImageIcon
+  Save
 } from 'lucide-react';
-import { Simulation, ChatMessage, Scar, Attachment } from './types';
-import { initDB, getAllSimulations, saveSimulation, saveMessage, getMessagesBySimId, deleteSimulation, getScarsBySimId, saveScar } from './db';
-import { getSimulationResponse } from './geminiService';
-import { stringToVector } from './math';
+import { Simulation, ChatMessage, Scar, Attachment } from './types.ts';
+import { initDB, getAllSimulations, saveSimulation, saveMessage, getMessagesBySimId, deleteSimulation, getScarsBySimId, saveScar } from './db.ts';
+import { getSimulationResponse } from './geminiService.ts';
+import { stringToVector } from './math.ts';
+
+// Robust UUID fallback for non-secure contexts
+const generateId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
 
 const App: React.FC = () => {
   const [db, setDb] = useState<IDBDatabase | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [simulations, setSimulations] = useState<Simulation[]>([]);
   const [activeSimId, setActiveSimId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -32,6 +40,7 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   
   // Multimodal state
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
@@ -44,7 +53,16 @@ const App: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    initDB().then(setDb).catch(console.error);
+    initDB()
+      .then((dbInstance) => {
+        setDb(dbInstance);
+        setIsInitializing(false);
+      })
+      .catch((err) => {
+        console.error("Database initialization failed:", err);
+        setDbError(err?.message || "Unknown Database Error");
+        setIsInitializing(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -75,7 +93,7 @@ const App: React.FC = () => {
   const createSimulation = async () => {
     if (!db) return;
     const newSim: Simulation = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       name: `Cycle ${simulations.length + 1}`,
       createdAt: Date.now(),
       lastActive: Date.now(),
@@ -111,7 +129,6 @@ const App: React.FC = () => {
     setIsConfigOpen(false);
   };
 
-  // Fixed handleFileChange: Explicitly typed 'file' as File to avoid unknown type errors
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -128,7 +145,6 @@ const App: React.FC = () => {
       };
       reader.readAsDataURL(file);
     });
-    // Reset file input
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -144,7 +160,7 @@ const App: React.FC = () => {
     setPendingAttachments([]);
 
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       simulationId: activeSimId,
       role: 'user',
       content: userPrompt,
@@ -159,10 +175,9 @@ const App: React.FC = () => {
       const scars = await getScarsBySimId(db, activeSimId);
       const result = await getSimulationResponse(userPrompt, messages, activeSim!, scars, currentAttachments);
 
-      // If pain was high, record a new scar for future repulsion
       if (result.state.pain > 1.0) {
         await saveScar(db, {
-          id: crypto.randomUUID(),
+          id: generateId(),
           simulationId: activeSimId,
           vector: stringToVector(userPrompt),
           depth: result.state.status === 'CRITICAL' ? 2.0 : 1.0,
@@ -172,7 +187,7 @@ const App: React.FC = () => {
       }
 
       const modelMessage: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         simulationId: activeSimId,
         role: 'model',
         content: result.collapsed ? `[COLLAPSE EVENT DETECTED - REBIRTH INITIATED]\n\n${result.text}` : result.text,
@@ -190,9 +205,33 @@ const App: React.FC = () => {
     }
   };
 
+  if (isInitializing) {
+    return (
+      <div className="flex flex-col h-screen w-full bg-[#131314] items-center justify-center space-y-4">
+        <BrainCircuit size={64} className="text-[#8ab4f8] animate-pulse" />
+        <h2 className="text-xl font-medium gemini-gradient">Engine Initializing...</h2>
+      </div>
+    );
+  }
+
+  if (dbError) {
+    return (
+      <div className="flex flex-col h-screen w-full bg-[#131314] items-center justify-center space-y-6 p-8 text-center">
+        <AlertTriangle size={64} className="text-red-400" />
+        <h2 className="text-2xl font-bold">Lattice Stabilization Failure</h2>
+        <p className="text-[#9aa0a6] max-w-md">{dbError}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-8 py-2 bg-[#8ab4f8] text-[#041e49] rounded-full font-bold"
+        >
+          Retry Initialization
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-full bg-[#131314] overflow-hidden text-[#e3e3e3] font-sans">
-      {/* Sidebar */}
       <aside className={`transition-all duration-300 ${isSidebarOpen ? 'w-[300px]' : 'w-0'} flex-shrink-0 bg-[#1e1f20] flex flex-col border-r border-[#3c4043]`}>
         <div className="p-4 flex flex-col h-full overflow-hidden">
           <button 
@@ -235,7 +274,6 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main UI */}
       <main className="flex-1 flex flex-col relative min-w-0">
         <button 
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -262,7 +300,6 @@ const App: React.FC = () => {
           </div>
         ) : (
           <div className="flex-1 flex flex-col h-full">
-            {/* Header / Telemetry */}
             <header className="h-16 flex items-center justify-between px-16 border-b border-[#3c4043] glass-effect z-10">
               <div className="flex items-center gap-6">
                 <span className="text-[#8ab4f8] font-bold text-lg">Monolith</span>
@@ -270,25 +307,24 @@ const App: React.FC = () => {
                   <div className="flex items-center gap-1.5 px-3 py-1 bg-[#131314] rounded-full border border-[#3c4043]">
                     <Zap size={12} className="text-yellow-400" />
                     <span className="text-[#9aa0a6]">Tension:</span>
-                    <span className={messages[messages.length-1]?.state?.tension! > 0.7 ? 'text-red-400' : 'text-green-400'}>
-                      {Math.round((messages[messages.length-1]?.state?.tension || 0) * 100)}%
+                    <span className={messages.length > 0 && messages[messages.length-1]?.state?.tension! > 0.7 ? 'text-red-400' : 'text-green-400'}>
+                      {messages.length > 0 ? Math.round((messages[messages.length-1]?.state?.tension || 0) * 100) : 0}%
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 px-3 py-1 bg-[#131314] rounded-full border border-[#3c4043]">
                     <Activity size={12} className="text-red-400" />
                     <span className="text-[#9aa0a6]">Pain:</span>
-                    <span className={messages[messages.length-1]?.state?.pain! > 5 ? 'text-red-400 font-bold' : 'text-blue-400'}>
-                      {Math.round((messages[messages.length-1]?.state?.pain || 0) * 10)}
+                    <span className={messages.length > 0 && messages[messages.length-1]?.state?.pain! > 5 ? 'text-red-400 font-bold' : 'text-blue-400'}>
+                      {messages.length > 0 ? Math.round((messages[messages.length-1]?.state?.pain || 0) * 10) : 0}
                     </span>
                   </div>
                 </div>
               </div>
               <div className="text-xs text-[#9aa0a6] uppercase tracking-widest font-bold">
-                {messages[messages.length-1]?.state?.status || 'IDLE'}
+                {messages.length > 0 ? (messages[messages.length-1]?.state?.status || 'IDLE') : 'IDLE'}
               </div>
             </header>
 
-            {/* Chat Content */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto pt-10 pb-40">
               <div className="max-w-3xl mx-auto px-6 space-y-12">
                 {messages.length === 0 && (
@@ -344,12 +380,9 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {/* Floating Input Area */}
             <div className="fixed bottom-0 left-0 right-0 py-6 pointer-events-none">
               <div className={`max-w-3xl mx-auto px-6 w-full transition-all duration-300 ${isSidebarOpen ? 'pl-[320px]' : ''}`}>
                 <div className="relative pointer-events-auto bg-[#1e1f20] border border-[#3c4043] rounded-3xl p-1.5 flex flex-col shadow-2xl focus-within:ring-2 focus-within:ring-[#8ab4f8]/20 transition-all">
-                  
-                  {/* File Previews */}
                   {pendingAttachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 p-3 border-b border-[#3c4043]">
                       {pendingAttachments.map((a, i) => (
@@ -418,7 +451,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Config Modal */}
       {isConfigOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="w-full max-w-xl bg-[#1e1f20] border border-[#3c4043] rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">

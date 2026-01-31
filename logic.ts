@@ -1,6 +1,6 @@
 
-import { NeuralState, Simulation, Scar, NeuralStateName } from './types';
-import { stringToVector, calculateScarPotential, calculateTension } from './math';
+import { NeuralState, Simulation, Scar, NeuralStateName } from './types.ts';
+import { stringToVector, calculateScarPotential, calculateTension } from './math.ts';
 
 const PAIN_THRESHOLD = 5.0;
 const CRITICAL_THRESHOLD = 0.75;
