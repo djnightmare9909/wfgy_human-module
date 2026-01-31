@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Plus, 
@@ -129,11 +130,13 @@ const App: React.FC = () => {
     if (db) await saveMessage(db, userMessage);
 
     try {
+      // Fix: currentScars is Scar[], matching the updated getSimulationResponse signature
       const currentScars = db ? await getScarsBySimId(db, activeSimId) : [];
       const result = await getSimulationResponse(userPrompt, messages, activeSim, currentScars);
 
       if (result.state.pain > 1.0 && db) {
-        const newScar: Scar & { simulationId: string } = {
+        // Fix: Use Scar type directly as it now includes simulationId
+        const newScar: Scar = {
           id: Math.random().toString(36).substring(7),
           simulationId: activeSimId,
           vector: stringToVector(userPrompt),
@@ -465,7 +468,7 @@ const App: React.FC = () => {
             <div className="p-6 bg-[#1a1b1c] border-t border-[#3c4043] flex justify-between items-center">
               <button 
                 onClick={() => {
-                  if(confirm("Are you sure? This will purge this cycle's consciousness history.")) {
+                  if(window.confirm("Are you sure? This will purge this cycle's consciousness history.")) {
                     deleteSim(activeSimId!);
                     setIsSettingsOpen(false);
                   }

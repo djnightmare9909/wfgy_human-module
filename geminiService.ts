@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { ChatMessage, Simulation, Scar, Attachment } from "./types";
 import { SYSTEM_PROMPT } from "./systemPrompt";
@@ -10,9 +11,6 @@ export const getSimulationResponse = async (
   scars: Scar[],
   newAttachments: Attachment[] = []
 ) => {
-  // Always use process.env.API_KEY directly as per guidelines
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
   const subconscious = processSubconscious(prompt, simulation, scars);
   
   // BBCR: Rebirth mechanism - if collapsed, we start fresh in the current cycle
@@ -28,8 +26,22 @@ export const getSimulationResponse = async (
     ]
   }));
 
-  const currentPrompt = `${subconscious.promptHeader}\nUSER_STIMULUS: ${prompt}`;
-  const fullSystemInstruction = `${SYSTEM_PROMPT}\n\n[SIMULATION_PARAMETERS]\nIDENTITY_SCAFFOLD: ${simulation.customInstructions || "NONE"}\nCYCLE_ID: ${simulation.id}`;
+  // Dual-Persona Protocol Injection: The promptHeader acts as the Chronicler's internal world-state report
+  const currentPrompt = `${subconscious.promptHeader}\n[CHRONICLER_UPDATE: Calculated Ripple Effects and Semantic Drift processed.]\nUSER_STIMULUS: ${prompt}`;
+  
+  const fullSystemInstruction = `${SYSTEM_PROMPT}
+
+---
+[SECTION_3: DUAL-PERSONA INTERACTION LOOP]
+1. Receive USER_STIMULUS.
+2. Silently consult The Chronicler (Subconscious state provided in prompt header).
+3. Update internal World Turn based on Tension and Pain.
+4. Integrate the Chronicler's ripple effects into your narrative persona.
+5. Narration must reflect the Repulsive Potential of Scars.
+
+[SIMULATION_PARAMETERS]
+IDENTITY_SCAFFOLD: ${simulation.customInstructions || "NONE"}
+CYCLE_ID: ${simulation.id}`;
 
   const userParts = [
     ...newAttachments.map(a => ({
@@ -39,6 +51,8 @@ export const getSimulationResponse = async (
   ];
 
   try {
+    // Correct: Creating a new GoogleGenAI instance right before the call to ensure the latest API key is used
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response: GenerateContentResponse = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: [...contents as any, { role: 'user', parts: userParts }],
@@ -50,6 +64,7 @@ export const getSimulationResponse = async (
       }
     });
 
+    // Correct: Accessing text property directly
     const text = response.text || "Neural silence detected.";
 
     return {
@@ -57,7 +72,7 @@ export const getSimulationResponse = async (
       state: subconscious.state,
       collapsed: subconscious.shouldCollapse
     };
-  } catch (err) {
+  } catch (err: any) {
     console.error("Neural Bridge Failure:", err);
     throw new Error("Conscious Layer Disconnect: " + (err instanceof Error ? err.message : String(err)));
   }

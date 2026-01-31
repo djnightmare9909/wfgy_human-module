@@ -1,3 +1,4 @@
+
 import { Simulation, ChatMessage, Scar } from './types';
 
 const DB_NAME = 'MonolithEngineDB';
@@ -62,7 +63,8 @@ export const getMessagesBySimId = async (db: IDBDatabase, simId: string): Promis
   });
 };
 
-export const saveScar = async (db: IDBDatabase, scar: Scar & { simulationId: string }) => {
+// Fixed: Removed redundant intersection as Scar now includes simulationId
+export const saveScar = async (db: IDBDatabase, scar: Scar) => {
   const tx = db.transaction('scars', 'readwrite');
   await tx.objectStore('scars').put(scar);
 };

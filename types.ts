@@ -7,6 +7,7 @@ export interface Vector {
 
 export interface Scar {
   id: string;
+  simulationId: string;
   vector: number[];
   depth: number;
   timestamp: number;
